@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pixel Engine + AI Rider Agent</title>
+<style>
+  :root{
+    --bg:#080b10; --panel:#0d131b; --line:#1c2635;
+    --txt:#8ea3bd; --dim:#4d5c72; --acc:#ffb020;
+    --qs:#00e5ff; --blip:#ff3b30;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; padding:16px 12px; min-height:100%;
+    background:radial-gradient(circle at 50% -10%,#141d2a 0%,#080b10 65%);
+    color:var(--txt);
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    display:flex; flex-direction:column; align-items:center; gap:12px;
+    -webkit-user-select:none; user-select:none;
+  }
+  h1{font-size:11px; letter-spacing:.38em; font-weight:600; color:#6d829e; margin:0; text-transform:uppercase;}
+  
+  .hud{
+    display:flex; gap:14px; align-items:center; flex-wrap:wrap; justify-content:center;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:12px 16px;
+    box-shadow:0 18px 40px -22px #000; width:min(94vw,680px);
+  }
+  .gauge-wrap{display:flex; flex-direction:column; align-items:center; gap:4px;}
+  .gauge canvas{display:block; width:90px; height:90px; image-rendering:pixelated;}
+  .readouts{display:flex; gap:12px; align-items:baseline;}
+  .rpmbox, .speedbox{display:flex; align-items:baseline; gap:4px; font-size:18px; font-weight:700; color:#e8f0fb;}
+  .speedbox{color:#00e5ff; text-shadow:0 0 10px rgba(0,229,255,0.3);}
+  .rpmbox em, .speedbox em{font-style:normal; font-size:8px; color:var(--dim);}
+
+  .controls{display:flex; flex-direction:column; gap:6px; flex:1; min-width:240px;}
+  .row{display:flex; gap:6px; align-items:center; flex-wrap:wrap;}
+  .lbl{font-size:8.5px; letter-spacing:.18em; color:var(--dim); width:65px;}
+  
+  .engines button{
+    font:inherit; font-size:8px; letter-spacing:.1em; padding:4px 6px; border-radius:6px;
+    background:#111823; color:#5f7089; border:1px solid #1e2939; cursor:pointer; transition:all .15s;
+  }
+  .engines button.on{background:var(--acc); border-color:var(--acc); color:#160c00;}
+
+  .thr{display:flex; flex-direction:column; gap:2px; width:100%; margin-top:4px;}
+  .thr .lbl{display:flex; justify-content:space-between; width:100%;}
+  input[type=range]{-webkit-appearance:none; width:100%; height:4px; background:#1a2432; border-radius:99px; outline:none; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--acc); border:2px solid #0b1119; box-shadow:0 0 10px -1px var(--acc);}
+
+  .gear-area{display:flex; gap:8px; align-items:center; background:#0a0f16; border:1px solid #1a2432; border-radius:10px; padding:6px 10px;}
+  .gear-num{font-size:32px; font-weight:800; color:var(--acc); text-shadow:0 0 15px rgba(255,176,32,.4); width:30px; text-align:center;}
+  .gear-info{display:flex; flex-direction:column; gap:2px;}
+  
+  .btn-shift{font:inherit; font-size:11px; font-weight:700; padding:4px 10px; border-radius:6px; background:#1a2432; color:#fff; border:1px solid #2c3b50; cursor:pointer;}
+  .btn-shift:active{background:#2c3b50;}
+  
+  .toggles{display:flex; gap:4px;}
+  .toggle{font:inherit; font-size:8px; padding:4px 6px; border-radius:6px; background:#111823; color:#5f7089; border:1px solid #1e2939; cursor:pointer;}
+  .toggle.on.qs{background:var(--qs); color:#000; border-color:var(--qs);}
+  .toggle.on.blip{background:var(--blip); color:#fff; border-color:var(--blip);}
+
+  #c{
+    display:block; width:min(94vw,680px); height:auto;
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    border-radius:14px; background:#080b10;
+    box-shadow:0 0 0 2px #1b2433, 0 26px 50px -18px #000;
+  }
+
+  .revbtn{
+    font:inherit; font-size:10px; letter-spacing:.26em; font-weight:700;
+    padding:10px 24px; border-radius:10px; cursor:pointer;
+    background:#131c28; color:#c9d7e8; border:1px solid #253347;
+    transition:all .12s ease; touch-action:none;
+  }
+  .revbtn.on{background:var(--acc); color:#160c00; border-color:var(--acc);}
+  .hint{font-size:9px; letter-spacing:.15em; color:#3d4a5c; text-align:center; line-height:1.6;}
+  .key{display:inline-block; background:#1a2432; color:#8296b0; padding:2px 5px; border-radius:4px; border:1px solid #2c3b50;}
+  .agent{width:min(94vw,680px); background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px 14px; display:flex; flex-direction:column; gap:8px; user-select:text;}
+  .agent h2{margin:0; font-size:9px; letter-spacing:.3em; color:#6d829e; font-weight:600;}
+  .loopbar{display:flex; gap:8px; align-items:center; font-size:9px; letter-spacing:.2em; color:var(--dim);}
+  .loopbar span{padding:3px 8px; border:1px solid #1e2939; border-radius:6px;}
+  .loopbar span.on{background:var(--acc); color:#160c00; border-color:var(--acc);}
+  .loopbar .clk{margin-left:auto; border:0; font-size:20px; font-weight:800; color:var(--qs); letter-spacing:0;}
+  .arow{display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:9px;}
+  .agent input[type=password], .agent input[type=text], .agent select{font:inherit; font-size:10px; background:#0a0f16; color:#c9d7e8; border:1px solid #1e2939; border-radius:6px; padding:5px 7px; user-select:text;}
+  #key{flex:1; min-width:180px;} #model{width:130px;}
+  .agent button{font:inherit; font-size:9px; letter-spacing:.12em; font-weight:700; padding:7px 10px; border-radius:8px; background:#131c28; color:#c9d7e8; border:1px solid #253347; cursor:pointer;}
+  #runLLM{background:var(--acc); color:#160c00; border-color:var(--acc);} #status{color:var(--dim); font-size:10px;}
+  .stats{display:grid; grid-template-columns:repeat(6,1fr); gap:6px;}
+  .stats div{background:#0a0f16; border:1px solid #1a2432; border-radius:8px; padding:5px 6px; font-size:7.5px; letter-spacing:.14em; color:var(--dim);}
+  .stats b{display:block; font-size:13px; letter-spacing:0; color:#e8f0fb; margin-top:2px;}
+  #plot{width:100%; height:auto; border-radius:8px; border:1px solid #1a2432;}
+  #log{height:180px; overflow:auto; background:#0a0f16; border:1px solid #1a2432; border-radius:8px; padding:6px; font-size:10px; line-height:1.5;}
+  .entry{padding:3px 0; border-bottom:1px solid #121a26;} .entry .eh{display:block; color:var(--dim); font-size:9px;}
+  .entry .et{display:block; color:#c9d7e8;} .entry.sys .et, .entry.sys .eh{color:var(--blip);}
+  .chip{display:inline-block; margin:2px 4px 0 0; padding:1px 6px; border-radius:5px; background:#10273a; color:var(--qs); border:1px solid #17405c;}
+  #runs,#sum{width:100%; border-collapse:collapse; font-size:9px; text-align:right;} #runs th,#sum th{color:var(--dim); font-weight:600; padding:3px;} #runs td,#sum td{padding:3px; border-top:1px solid #121a26;}
+  #runs tr.best td{color:var(--acc); font-weight:700;}
+  #bars{width:100%; height:auto; border-radius:8px; border:1px solid #1a2432;} #benchInfo{color:var(--qs); font-size:10px;}
+  #goal{flex:1; min-width:200px;}
+</style>
+</head>
+<body>
+
+<h1>Pixel Engine + AI Rider Agent</h1>
+
+<div class="hud">
+  <div class="gauge-wrap">
+    <div class="gauge"><canvas id="tach"></canvas></div>
+    <div class="readouts">
+      <div class="rpmbox"><span id="rpmVal">0</span><em>RPM</em></div>
+      <div class="speedbox"><span id="speedVal">0</span><em>KM/H</em></div>
+    </div>
+  </div>
+  
+  <div class="controls">
+    <div class="row">
+      <span class="lbl">ENGINE</span>
+      <div class="engines" id="engines"></div>
+    </div>
+    <div class="row">
+      <span class="lbl">SHIFTER</span>
+      <div class="toggles">
+        <button class="toggle qs" id="qsBtn">QUICK SHIFT</button>
+        <button class="toggle blip" id="blipBtn">AUTO-BLIPPER</button>
+      </div>
+    </div>
+    <div class="thr">
+      <div class="lbl"><span>THROTTLE (W)</span><span id="thrVal">0%</span></div>
+      <input id="thr" type="range" min="0" max="100" value="0">
+    </div>
+  </div>
+
+  <div class="gear-area">
+    <div class="gear-num" id="gearNum">N</div>
+    <div class="gear-info">
+      <button class="btn-shift" id="shiftUp">UP (E)</button>
+      <button class="btn-shift" id="shiftDown">DOWN (Q)</button>
+    </div>
+  </div>
+</div>
+
+<div class="stage"><canvas id="c"></canvas></div>
+
+<button class="revbtn" id="rev">HOLD TO REV</button>
+<div class="hint">
+  <span class="key">W</span> Throttle &nbsp;|&nbsp; 
+  <span class="key">S</span> Brake &nbsp;|&nbsp; 
+  <span class="key">A</span> Clutch &nbsp;|&nbsp; 
+  <span class="key">E</span> Shift Up &nbsp;|&nbsp; 
+  <span class="key">Q</span> Shift Down
+</div>
+
+<section class="agent">
+  <h2>AGENT CONSOLE</h2>
+  <div class="loopbar"><span id="ph-observe">OBSERVE</span>→<span id="ph-reason">REASON</span>→<span id="ph-act">ACT</span><span class="clk" id="clk">0.00s</span></div>
+  <div class="arow">
+    <select id="provider"><option value="claude">Claude</option><option value="gemini">Gemini (AI Studio)</option><option value="deepseek">DeepSeek</option></select>
+    <input id="key" type="password" placeholder="API key (kept in memory only)" autocomplete="off">
+    <input id="model" type="text" value="claude-haiku-5-5" title="Model ID">
+  </div>
+  <div class="arow"><input id="goal" type="text" value="speed 60 gear 3" placeholder="e.g. speed 80 gear 4" autocomplete="off"><button id="runLLM">▶ RUN AGENT</button><button id="stopBtn">■ STOP / RESET</button><span id="status">idle</span></div>
+  <div style="font-size:9px;color:var(--dim)">type like “speed 80 gear 4” · valid km/h per gear: G1 9–48 · G2 12–66 · G3 15–87 · G4 19–108 · G5 24–133 · G6 28–158</div>
+  <div class="stats">
+    <div>PEAK RPM<b id="sPeak">0</b></div><div>OVER-REV<b id="sOver">0</b></div><div>GUARD<b id="sOvr">0</b></div>
+    <div>LLM CALLS<b id="sCalls">0</b></div><div>AVG LATENCY<b id="sLat">—</b></div><div>GOAL<b id="sTarget">—</b></div>
+  </div>
+  <canvas id="plot" width="680" height="140"></canvas>
+  <div id="log"></div>
+  <div hidden>
+    <select id="tick"><option value="500">500</option></select><input type="checkbox" id="guard" checked>
+    <button id="runBase"></button><button id="benchBtn"></button><select id="trials"><option>3</option></select><button id="csvBtn"></button><button id="clearBtn"></button><span id="benchInfo"></span>
+    <button id="rpBtn"></button><button id="rpSave"></button><button id="rpLoad"></button><input type="file" id="rpFile">
+    <canvas id="bars" width="680" height="150"></canvas><table id="sum"></table><table id="runs"></table>
+  </div>
+</section>
+
+<script>
+(() => {
+"use strict";
+
+/* ═══════════════════════════════════════════════════════════
+   CONFIG & PALETTE
+   ═══════════════════════════════════════════════════════════ */
+const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+const C = {
+  bg: hex('#080b10'), grid: hex('#121a26'), caseO: hex('#3a4452'), caseI: hex('#141a23'),
+  wall: hex('#5c6675'), wallHi: hex('#8792a4'), wallLo: hex('#39424f'), fin: hex('#4b5563'),
+  head: hex('#525c6c'), headHi: hex('#78849a'), headLo: hex('#333b47'),
+  piston: hex('#c3ccd9'), pistonHi: hex('#eaf0f8'), pistonLo: hex('#8b95a6'), ring: hex('#2b313c'),
+  rod: hex('#9aa5b5'), rodLo: hex('#5f6a7a'), crank: hex('#7c8697'), hub: hex('#3a4250'), pin: hex('#e2eaf5'),
+  valve: hex('#c8d1de'), valveLo: hex('#7d8798'), plug: hex('#d4dceb'), plugLo: hex('#7d8798'),
+  g1: hex('#2f7fd6'), g1b: hex('#63aef5'), g2: hex('#1a3fa8'), g2b: hex('#3f74e0'),
+  f1: hex('#fffbe0'), f2: hex('#ff9a1a'), f3: hex('#7d2405'), ge: hex('#5f6875'), geb: hex('#8e98a6'),
+  spark: hex('#ffffff'), sparkY: hex('#ffe066'), arc: hex('#2e3a4a'), arcD: hex('#1b2430'),
+  tick: hex('#6b7b90'), red: hex('#ff3b30'), needle: hex('#ffb020')
+};
+const mix = (a,b,t) => [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+const hash = (x,y,z) => {
+  let h = Math.imul(x|0,374761393) ^ Math.imul(y|0,668265263) ^ Math.imul(z|0,1274126177);
+  h = Math.imul(h ^ (h>>>13), 1274126177);
+  return ((h ^ (h>>>16)) >>> 0) / 4294967296;
+};
+
+/* ═══════════════════════════════════════════════════════════
+   CANVAS FACTORY
+   ═══════════════════════════════════════════════════════════ */
+function pixCanvas(canvas, w, h) {
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const d = img.data;
+  return {
+    w, h,
+    clear(c) { for(let i=0;i<d.length;i+=4){ d[i]=c[0]; d[i+1]=c[1]; d[i+2]=c[2]; d[i+3]=255; } },
+    px(x,y,c) { x|=0; y|=0; if(x<0||y<0||x>=w||y>=h) return; const i=(y*w+x)<<2; d[i]=c[0]; d[i+1]=c[1]; d[i+2]=c[2]; d[i+3]=255; },
+    rect(x,y,rw,rh,c) { x=Math.round(x); y=Math.round(y); rw=Math.round(rw); rh=Math.round(rh); for(let j=0;j<rh;j++) for(let i=0;i<rw;i++) this.px(x+i,y+j,c); },
+    disc(cx,cy,r,c) { cx=Math.round(cx); cy=Math.round(cy); const r2=r*r; for(let y=-r;y<=r;y++) for(let x=-r;x<=r;x++) if(x*x+y*y<=r2) this.px(cx+x,cy+y,c); },
+    line(x0,y0,x1,y1,wd,c) { const dx=x1-x0,dy=y1-y0; const n=Math.max(Math.abs(dx),Math.abs(dy))*2+1; const hw=(wd/2)|0; for(let i=0;i<=n;i++){ const t=i/n; this.rect(Math.round(x0+dx*t)-hw, Math.round(y0+dy*t)-hw, wd, wd, c); } },
+    flush() { ctx.putImageData(img, 0, 0); }
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ENGINE DEFINITIONS
+   ═══════════════════════════════════════════════════════════ */
+const W = 360, H = 176, HEAD_TOP = 16, HEAD_BOT = 36, BORE_TOP = 36, BORE_BOT = 104, CRANK_Y = 128, CRANK_R = 14, ROD_L = 62;
+const ENGINES = [
+  { id:'i1', label:'INLINE 1',      n:1, phases:[360] },
+  { id:'i2', label:'INLINE 2',      n:2, phases:[360, 180] },
+  { id:'i3', label:'INLINE 3',      n:3, phases:[360, 120, 600] },
+  { id:'i4', label:'INLINE 4',      n:4, phases:[360, 180, 0, 540] },
+  { id:'pt', label:'PARALLEL TWIN', n:2, phases:[360, 360] }
+];
+let engineIdx = 4; // Default to Parallel Twin as requested
+
+const P = pixCanvas(document.getElementById('c'), W, H);
+const T = pixCanvas(document.getElementById('tach'), 118, 118);
+
+/* ═══════════════════════════════════════════════════════════
+   AUDIO ENGINE
+   ═══════════════════════════════════════════════════════════ */
+const SND = {
+  ok:false, qs:true, blip:true,
+  init() {
+    if (this.ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC(); this.ctx = ctx;
+
+    this.master = ctx.createGain(); this.master.gain.value = 0.0001;
+    this.comp = ctx.createDynamicsCompressor(); this.comp.threshold.value = -20; this.comp.ratio.value = 12;
+    this.master.connect(this.comp); this.comp.connect(ctx.destination);
+
+    this.hp = ctx.createBiquadFilter(); this.hp.type = 'highpass'; this.hp.frequency.value = 80;
+    this.lp = ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.Q.value = 3;
+    this.distortion = ctx.createWaveShaper(); this.distortion.oversample = '4x';
+    this.hp.connect(this.lp); this.lp.connect(this.distortion); this.distortion.connect(this.master);
+
+    this.oscPulse = ctx.createOscillator(); this.oscPulse.type = 'sawtooth';
+    this.oscSub = ctx.createOscillator(); this.oscSub.type = 'sine';
+    this.gainSub = ctx.createGain();
+    this.oscPulse.connect(this.hp); this.oscSub.connect(this.gainSub); this.gainSub.connect(this.hp);
+    this.oscPulse.start(); this.oscSub.start();
+
+    const len = ctx.sampleRate * 1;
+    const nb = ctx.createBuffer(1, len, ctx.sampleRate);
+    const ch = nb.getChannelData(0);
+    for (let i=0;i<len;i++) ch[i] = Math.random()*2 - 1;
+    this.noiseBuf = nb;
+    this.noiseSource = ctx.createBufferSource(); this.noiseSource.buffer = nb; this.noiseSource.loop = true;
+    this.noiseFilter = ctx.createBiquadFilter(); this.noiseFilter.type = 'bandpass';
+    this.noiseGain = ctx.createGain(); this.noiseGain.gain.value = 0;
+    this.noiseSource.connect(this.noiseFilter); this.noiseFilter.connect(this.noiseGain); this.noiseGain.connect(this.distortion);
+    this.noiseSource.start();
+
+    this.waves = [0,1,2,3,4].map(t => {
+      const real = new Float32Array(64), imag = new Float32Array(64);
+      for (let i=1;i<64;i++) {
+        let base = 1/i, h = base;
+        if (t===1) h = (i%2===0) ? base*1.8 : base*0.4;
+        if (t===2) h = (i%3===0) ? base*1.8 : base*0.4;
+        if (t===3) h = (i%4===0) ? base*1.8 : base*0.2;
+        if (t===4) h = (i%2===0) ? base*2.2 : base*1.0;
+        imag[i] = h;
+      }
+      return new PeriodicWave(ctx, { real, imag });
+    });
+
+    this.ok = true;
+    this.master.gain.setTargetAtTime(0.8, ctx.currentTime, 0.5);
+  },
+
+  playPop() {
+    if (!this.ok) return;
+    const t = this.ctx.currentTime;
+    this.noiseSource.stop(); this.noiseSource = this.ctx.createBufferSource();
+    this.noiseSource.buffer = this.noiseBuf; this.noiseSource.loop = true;
+    this.noiseSource.connect(this.noiseFilter); this.noiseFilter.connect(this.noiseGain);
+    this.noiseSource.start();
+    this.noiseGain.gain.setValueAtTime(1.5, t);
+    this.noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  },
+
+  update(rpm, isCut) {
+    if (!this.ok) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    const t = this.ctx.currentTime;
+    const E = ENGINES[engineIdx];
+    const fBase = Math.max(10, rpm / 120);
+
+    if (isCut) {
+      this.oscPulse.frequency.setTargetAtTime(0, t, 0.01);
+      this.oscSub.frequency.setTargetAtTime(0, t, 0.01);
+      this.master.gain.setTargetAtTime(0, t, 0.01);
+    } else {
+      this.oscPulse.frequency.setTargetAtTime(fBase, t, 0.02);
+      this.oscSub.frequency.setTargetAtTime(fBase / 2, t, 0.02);
+      this.oscPulse.setPeriodicWave(this.waves[E.n === 2 ? 4 : (E.n === 4 ? 3 : E.n - 1)]);
+      
+      this.hp.frequency.setTargetAtTime(80 + fBase*2, t, 0.05);
+      this.lp.frequency.setTargetAtTime(400 + fBase*20, t, 0.05);
+      
+      const k = (E.n === 2 ? 15 : (E.n === 4 ? 3 : 7)) + (rpm/12000)*10;
+      const curve = new Float32Array(2048);
+      for (let i=0;i<2048;i++) curve[i] = Math.tanh(((i/2048)*2 - 1) * k);
+      this.distortion.curve = curve;
+
+      this.gainSub.gain.setTargetAtTime(E.n === 2 ? 1.0 : 0.4, t, 0.05);
+      this.noiseGain.gain.setTargetAtTime(0.1 + 0.15*(rpm/12000), t, 0.05);
+      
+      this.master.gain.setTargetAtTime(0.8 * (0.4 + 0.6 * rpm/12000), t, 0.05);
+    }
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   RENDER ENGINE
+   ═══════════════════════════════════════════════════════════ */
+function renderEngine(angle, seed, rpm, delta) {
+  const E = ENGINES[engineIdx], n = E.n, phases = E.phases;
+  P.clear(C.bg);
+  for(let y=8;y<H;y+=8) for(let x=8;x<W;x+=8) P.px(x,y,C.grid);
+
+  const spacing = n===1 ? 0 : Math.min(94, (W-120)/(n-1));
+  const x0 = W/2 - (n-1)*spacing/2, blockL = x0-24, blockR = x0+(n-1)*spacing+24;
+
+  P.rect(blockL-6, BORE_BOT-2, blockR-blockL+12, 62, C.caseO);
+  P.rect(blockL-6, BORE_BOT-2, blockR-blockL+12, 1, C.wallLo);
+  P.rect(blockL-6, BORE_BOT+54, blockR-blockL+12, 6, C.caseI);
+  P.rect(blockL-6, BORE_BOT-2, 1, 62, C.wallLo); P.rect(blockR+5, BORE_BOT-2, 1, 62, C.wallLo);
+  P.rect(blockL, HEAD_BOT, blockR-blockL, BORE_BOT-HEAD_BOT, C.caseO);
+  P.rect(blockL, HEAD_BOT, blockR-blockL, 1, C.wallHi);
+  for(let y=HEAD_BOT+6;y<BORE_BOT-4;y+=9) { P.rect(blockL-5,y,blockR-blockL+10,3,C.fin); P.rect(blockL-5,y,blockR-blockL+10,1,C.wallHi); }
+  P.rect(blockL-2, HEAD_TOP, blockR-blockL+4, HEAD_BOT-HEAD_TOP, C.head);
+  P.rect(blockL-2, HEAD_TOP, blockR-blockL+4, 2, C.headHi); P.rect(blockL-2, HEAD_BOT-2, blockR-blockL+4, 2, C.headLo);
+
+  for(let i=0;i<n;i++){
+    const cx = x0 + i*spacing;
+    P.rect(cx-15, BORE_TOP, 30, BORE_BOT-BORE_TOP, C.caseI);
+    P.rect(cx-15, BORE_TOP, 1, BORE_BOT-BORE_TOP, C.wallHi); P.rect(cx+14, BORE_TOP, 1, BORE_BOT-BORE_TOP, C.wallLo);
+    P.rect(cx-3,9,6,2,C.plugLo); P.rect(cx-2,11,4,5,C.plug); P.rect(cx-1,16,2,14,C.plugLo); P.rect(cx-1,30,2,6,C.plug);
+  }
+
+  const subFrames = Math.max(1, Math.min(8, Math.ceil(delta/45)));
+  const blurStep = delta / subFrames;
+
+  for(let s=subFrames-1;s>=0;s--){
+    const a = (angle - s*blurStep + 720) % 720;
+    for(let i=0;i<n;i++){
+      const cx = x0 + i*spacing, ph = phases[i];
+      const cyc = ((a+ph)%720+720)%720, stroke = Math.floor(cyc/180), prog = (cyc%180)/180;
+      const th = cyc*Math.PI/180, sT = Math.sin(th), cT = Math.cos(th);
+      const wY = CRANK_Y - (CRANK_R*cT + Math.sqrt(ROD_L*ROD_L - CRANK_R*CRANK_R*sT*sT));
+      const pTop = Math.round(wY - 10);
+
+      if(s===0){
+        let gA, gB, gD;
+        if(stroke===0){ gA=C.g1; gB=C.g1b; gD=0.50; }
+        else if(stroke===1){ gA=mix(C.g1,C.g2,prog); gB=mix(C.g1b,C.g2b,prog); gD=0.32+0.48*prog; }
+        else if(stroke===2){
+          const q=Math.min(1,prog*1.8);
+          if(q<0.35){ gA=mix(C.f1,C.f2,q/0.35); gB=mix(C.f1,C.f3,q/0.35); } else { gA=mix(C.f2,C.f3,(q-0.35)/0.65); gB=gA; }
+          gD=0.55;
+        } else { gA=C.ge; gB=C.geb; gD=0.45; }
+        for(let y=BORE_TOP;y<pTop;y++) for(let x=cx-14;x<=cx+14;x++) P.px(x,y, hash(x,y,seed+i*97)<gD?gB:gA);
+        if(stroke===2 && prog<0.16){
+          const k=1-prog/0.16;
+          P.px(cx,35,C.spark); P.px(cx-1,35,C.sparkY); P.px(cx+1,35,C.sparkY);
+          if(k>0.35){ P.px(cx-2,34,C.sparkY); P.px(cx+2,34,C.sparkY); P.px(cx,33,C.spark); P.px(cx,36,C.sparkY); }
+          if(k>0.7){ P.px(cx-3,34,C.f1); P.px(cx+3,34,C.f1); P.px(cx,32,C.spark); }
+        }
+      }
+      P.disc(cx,CRANK_Y,20,C.crank); P.disc(cx,CRANK_Y,19,C.crank); P.disc(cx,CRANK_Y,7,C.hub);
+      const pinX = cx+CRANK_R*sT, pinY = CRANK_Y-CRANK_R*cT;
+      P.line(cx,Math.round(wY),pinX,pinY,5,C.rod); P.line(cx,Math.round(wY),pinX,pinY,1,C.rodLo); P.disc(pinX,pinY,4,C.pin);
+      P.rect(cx-15,pTop,30,20,C.piston); P.rect(cx-15,pTop,30,1,C.pistonHi);
+      P.rect(cx-15,pTop+2,30,2,C.ring); P.rect(cx-15,pTop+5,30,2,C.ring);
+      P.rect(cx-15,pTop+18,30,2,C.pistonLo); P.rect(cx-15,pTop,1,20,C.pistonHi);
+      P.disc(cx,Math.round(wY),4,C.hub); P.disc(cx,Math.round(wY),2,C.pin);
+      const inL = stroke===0?Math.round(Math.sin(prog*Math.PI)*6):0, exL = stroke===3?Math.round(Math.sin(prog*Math.PI)*6):0;
+      const drawV = (vx,lift,open) => {
+        const vy=32+lift; P.rect(vx-1,14,2,vy-14,C.valve); P.rect(vx-5,vy,10,3,open?C.pistonHi:C.valve);
+        P.rect(vx-5,vy,10,1,C.pistonHi); P.rect(vx-5,vy+2,10,1,C.valveLo);
+      };
+      drawV(cx-8,inL,inL>0); drawV(cx+8,exL,exL>0);
+    }
+  }
+  P.flush();
+}
+
+function drawTach(rpm) {
+  const MAX = 12000, RED = 9000;
+  T.clear(C.bg); const cx=59, cy=60, R=44, A0=135, A1=405, SPAN=A1-A0;
+  T.disc(cx,cy,48,C.arcD); T.disc(cx,cy,46,C.bg);
+  for(let a=A0;a<=A1;a+=0.35){
+    const rad=a*Math.PI/180, frac=(a-A0)/SPAN, over=frac*MAX>=RED, col=over?C.red:C.arc;
+    T.px(cx+Math.cos(rad)*R,cy+Math.sin(rad)*R,col); T.px(cx+Math.cos(rad)*(R-1),cy+Math.sin(rad)*(R-1),col); T.px(cx+Math.cos(rad)*(R-2),cy+Math.sin(rad)*(R-2),col);
+  }
+  for(let v=0;v<=MAX;v+=1000){
+    const frac=v/MAX, a=A0+frac*SPAN, rad=a*Math.PI/180, over=v>=RED, col=over?C.red:C.tick;
+    for(let rr=R-10;rr<=R-3;rr++){ T.px(cx+Math.cos(rad)*rr,cy+Math.sin(rad)*rr,col); T.px(cx+Math.cos(rad+0.06)*rr,cy+Math.sin(rad+0.06)*rr,col); }
+  }
+  const frac=Math.max(0,Math.min(1,rpm/MAX)), na=(A0+frac*SPAN)*Math.PI/180, nx=-Math.sin(na), ny=Math.cos(na);
+  for(let rr=5;rr<=R-11;rr++){ const x=cx+Math.cos(na)*rr, y=cy+Math.sin(na)*rr; T.px(x,y,C.needle); T.px(x+nx,y+ny,C.needle); T.px(x-nx,y-ny,C.needle); }
+  T.disc(cx,cy,5,C.hub); T.disc(cx,cy,2,C.needle); T.flush();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TRUE PHYSICS & STATE
+   ═══════════════════════════════════════════════════════════ */
+const MIN_RPM = 1000, MAX_RPM = 12000;
+const GEAR_RATIOS = [0, 180, 130, 100, 80, 65, 55]; // N, 1, 2, 3, 4, 5, 6
+
+let angle = 0, rpm = MIN_RPM, speed = 0;
+let gear = 0; // 0 = N, 1-6
+let throttle = 0, revving = false, clutch = false;
+let lastT = performance.now(), acc = 0, isShiftCut = false, shiftCutTimer = 0;
+
+const $ = id => document.getElementById(id);
+const rpmVal = $('rpmVal'), speedVal = $('speedVal'), gearNum = $('gearNum'), thrVal = $('thrVal'), thrIn = $('thr'), cvs = $('c');
+
+const enginesEl = $('engines');
+ENGINES.forEach((e,i) => {
+  const b = document.createElement('button'); b.textContent = e.label;
+  b.addEventListener('click', () => { engineIdx = i; [...enginesEl.children].forEach((c,j)=>c.classList.toggle('on',j===i)); });
+  if(i===engineIdx) b.classList.add('on'); enginesEl.appendChild(b);
+});
+
+function setGear(g) {
+  gear = Math.max(0, Math.min(6, g));
+  gearNum.textContent = gear === 0 ? 'N' : gear;
+}
+
+function shiftUp() {
+  if (gear >= 6) return;
+  if (SND.qs && rpm > 2000 && !clutch) {
+    SND.playPop(); isShiftCut = true; shiftCutTimer = 50;
+  }
+  setGear(gear + 1);
+  const btn = $('shiftUp'); btn.style.background = '#2c3b50'; setTimeout(()=>btn.style.background = '', 100);
+}
+
+function shiftDown() {
+  if (gear <= 0) return;
+  if (SND.blip && !clutch) {
+    rpm = Math.min(MAX_RPM, rpm * 1.2); SND.playPop();
+  }
+  setGear(gear - 1);
+  const btn = $('shiftDown'); btn.style.background = '#2c3b50'; setTimeout(()=>btn.style.background = '', 100);
+}
+
+$('shiftUp').addEventListener('pointerdown', (e) => { e.preventDefault(); shiftUp(); });
+$('shiftDown').addEventListener('pointerdown', (e) => { e.preventDefault(); shiftDown(); });
+
+// Keyboard Controls
+const keys = { w:false, s:false, a:false };
+window.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (k === 'w') { keys.w = true; $('rev').classList.add('on'); }
+  if (k === 's') keys.s = true;
+  if (k === 'a') { keys.a = true; clutch = true; }
+  if (k === 'e') shiftUp();
+  if (k === 'q') shiftDown();
+});
+window.addEventListener('keyup', (e) => {
+  const k = e.key.toLowerCase();
+  if (k === 'w') { keys.w = false; $('rev').classList.remove('on'); }
+  if (k === 's') keys.s = false;
+  if (k === 'a') { keys.a = false; clutch = false; }
+});
+
+// UI Buttons & Toggles
+thrIn.addEventListener('input', () => { throttle = +thrIn.value; thrVal.textContent = throttle + '%'; });
+const startRev = e => { e.preventDefault(); revving = true; $('rev').classList.add('on'); };
+const stopRev  = () => { revving = false; $('rev').classList.remove('on'); };
+$('rev').addEventListener('pointerdown', startRev); $('rev').addEventListener('pointerup', stopRev);
+$('rev').addEventListener('pointerleave', stopRev); $('rev').addEventListener('pointercancel', stopRev);
+
+$('qsBtn').classList.add('on');
+$('qsBtn').addEventListener('click', (e) => { SND.qs = !SND.qs; e.target.classList.toggle('on', SND.qs); });
+$('blipBtn').classList.add('on');
+$('blipBtn').addEventListener('click', (e) => { SND.blip = !SND.blip; e.target.classList.toggle('on', SND.blip); });
+
+const unlock = () => { SND.init(); };
+document.addEventListener('pointerdown', unlock, { once:false });
+document.addEventListener('keydown', unlock, { once:false });
+
+/* ═══════════════════════════════════════════════════════════
+   MAIN LOOP (Real Physics)
+   ═══════════════════════════════════════════════════════════ */
+function loop(now) {
+  const dt = AG.dt(Math.min(0.05, (now - lastT) / 1000));
+  lastT = now;
+
+  AG.pre(dt);
+  // 1. Calculate Throttle
+  let thrPct = revving ? 100 : throttle;
+  if (keys.w) thrPct = 100;
+  
+  // 2. Clutch Logic
+  let clutched = clutch || keys.a;
+  
+  // 3. RPM / Speed Physics
+  if (clutched) {
+    // Engine is disconnected from the wheel
+    const targetRPM = MIN_RPM + (MAX_RPM - MIN_RPM) * (thrPct / 100);
+    const k = targetRPM > rpm ? 6.0 : 2.5;
+    rpm += (targetRPM - rpm) * Math.min(1, dt * k);
+    // Speed decays slowly if clutch is held (coasting)
+    speed *= (1 - 0.4 * dt);
+  } else {
+    // Engine is LOCKED to the wheel speed
+    const targetRPM = Math.max(MIN_RPM, speed * GEAR_RATIOS[gear]);
+    
+    // If in Neutral, engine revs freely
+    if (gear === 0) {
+      const targetRPM = MIN_RPM + (MAX_RPM - MIN_RPM) * (thrPct / 100);
+      const k = targetRPM > rpm ? 6.0 : 2.5;
+      rpm += (targetRPM - rpm) * Math.min(1, dt * k);
+    } else {
+      // RPM is strictly locked to speed * gear ratio
+      rpm = targetRPM;
+      
+      // Acceleration based on throttle, gear ratio, and current speed
+      const accel = (thrPct / 100) * (GEAR_RATIOS[gear] / 10) * dt;
+      speed += accel;
+    }
+  }
+
+  // Braking
+  if (keys.s) {
+    speed -= 80 * dt;
+    if (speed < 0) speed = 0;
+  }
+
+  // Rev Limiter
+  if (rpm > MAX_RPM) {
+    rpm = MAX_RPM;
+    if (!isShiftCut && Math.random() > 0.5) { isShiftCut = true; shiftCutTimer = 20; }
+  }
+  
+  // Cap speed to redline in current gear
+  if (!clutched && gear > 0) {
+    speed = Math.min(speed, MAX_RPM / GEAR_RATIOS[gear]);
+  }
+
+  // Shift Cut Timer (Quickshifter)
+  if (isShiftCut) {
+    shiftCutTimer -= dt * 1000;
+    if (shiftCutTimer <= 0) isShiftCut = false;
+  }
+
+  AG.post(dt);
+  // 4. Visuals
+  const visRate = rpm * 6;
+  const delta = visRate * dt;
+  angle = (angle + delta) % 720;
+  const shake = Math.min(5, rpm / 2500);
+  cvs.style.transform = `translate(${(Math.random()-0.5)*shake}px, ${(Math.random()-0.5)*shake}px)`;
+
+  renderEngine(angle, Math.floor(now / 46), rpm, delta);
+  drawTach(rpm);
+
+  // 5. Audio
+  acc += dt;
+  if (acc > 0.04) { SND.update(rpm, isShiftCut); acc = 0; }
+
+  // 6. UI
+  rpmVal.textContent = Math.round(rpm / 10) * 10;
+  speedVal.textContent = Math.round(speed);
+  
+  requestAnimationFrame(loop);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AGENT BRIDGE — OBSERVE (telemetry) → REASON (LLM) → ACT (tools)
+   Sim time is lock-stepped: it freezes while the agent thinks and
+   advances exactly one tick per decision, so results are
+   independent of API latency.
+   ═══════════════════════════════════════════════════════════ */
+const AG = (() => {
+  const REDLINE = 9000, TIMEOUT = 40, MAX_STEPS = 120; let GOAL = { speed:60, gear:3 };
+  const S = { lock:false, budget:0, wait:null, active:false, runId:0, t:0, evts:0, inOver:false, peak:0,
+              ovr:0, calls:0, lat:0, tokens:0, trace:[], abort:null, driver:'' };
+  try { S.replay = JSON.parse(localStorage.getItem('pixelAgentReplay') || 'null'); } catch(e) {}
+  let runs = []; try { runs = JSON.parse(localStorage.getItem('pixelAgentRuns') || '[]'); } catch(e) {}
+
+  const effThr = () => (keys.w || revving) ? 100 : throttle;
+  const proj = (dt, g = gear, sp = speed) => {
+    if (g === 0 || clutch) return rpm;
+    const r = GEAR_RATIOS[g];
+    return Math.max(MIN_RPM, Math.min(sp + effThr()/100 * r/10 * dt, MAX_RPM/r) * r);
+  };
+
+  /* ── OBSERVE ── */
+  const tele = tick => ({
+    t:+S.t.toFixed(2), speed_kmh:+speed.toFixed(1), rpm:Math.round(rpm), gear, throttle_pct:Math.round(effThr()),
+    clutch_pulled:clutch, brake_on:keys.s, target_speed:GOAL.speed, target_gear:GOAL.gear, kmh_to_target:+(GOAL.speed-speed).toFixed(1),
+    accel_at_100pct_kmh_s: gear ? +(GEAR_RATIOS[gear]/10).toFixed(1) : 0, max_kmh_in_gear_at_9000: gear ? Math.floor(REDLINE/GEAR_RATIOS[gear]) : null,
+    rpm_headroom:Math.round(REDLINE-rpm), projected_rpm_next_tick:Math.round(proj(tick)),
+    rpm_if_upshift_now: gear < 6 ? Math.round(Math.max(MIN_RPM, speed*GEAR_RATIOS[gear+1])) : null
+  });
+
+  /* ── ACT: tool implementations ── */
+  const tools = {
+    set_throttle: a => { const p = Math.max(0, Math.min(100, +a.percent || 0)); throttle = p; thrIn.value = p; thrVal.textContent = p + '%'; },
+    shift_up:     () => shiftUp(),
+    shift_down:   () => shiftDown(),
+    pull_clutch:  a => { clutch = !!a.pulled; },
+    brake:        a => { keys.s = !!a.on; },
+    wait:         a => { S.nextWait = Math.max(0.25, Math.min(3, +a.seconds || 0.5)); }
+  };
+  const fmt = c => `${c.name}(${Object.values(c.input || {}).join(',')})`;
+  const exec = c => { const f = tools[c.name]; if (f) f(c.input || {}); return f ? fmt(c) : '?' + c.name; };
+
+  const bool = d => ({ type:'object', properties:d, required:Object.keys(d) });
+  const TOOLS = [
+    { name:'submit_plan', description:'Submit the riding plan that the on-board controller will execute in real time.',
+      input_schema:{ type:'object', required:['shift_rpm', 'max_throttle_pct', 'approach_gain', 'reasoning'], properties:{
+        shift_rpm:{ type:'number' }, max_throttle_pct:{ type:'number' }, approach_gain:{ type:'number' }, reasoning:{ type:'string' } } } }
+  ];
+  let SYSTEM = '';
+  const MAXKMH = g => Math.floor(8700 / GEAR_RATIOS[g]), MINKMH = g => Math.ceil(1500 / GEAR_RATIOS[g]);
+  function parseGoal(t) {
+    const sp = /speed\D{0,3}(\d+(?:\.\d+)?)/i.exec(t) || /(\d+(?:\.\d+)?)\s*(?:km|kph)/i.exec(t), ge = /gear\D{0,3}([1-6])/i.exec(t) || /([1-6])\s*(?:st|nd|rd|th)\s*gear/i.exec(t);
+    if (!sp || !ge) return { ok:false, err:'write it like: speed 80 gear 4' };
+    const speed = +sp[1], gear = +ge[1];
+    if (speed > MAXKMH(gear)) return { ok:false, err:`gear ${gear} tops out at ${MAXKMH(gear)} km/h (rpm limit), use a higher gear` };
+    if (speed < MINKMH(gear)) return { ok:false, err:`gear ${gear} needs at least ${MINKMH(gear)} km/h, use a lower gear` };
+    return { ok:true, speed, gear };
+  }
+  const buildSystem = () => `You are the planning brain of a rider agent for a simulated 6-speed motorcycle. A fast on-board controller executes your plan 60 times a second, so you plan ONCE by calling submit_plan.
+GOAL: reach ${GOAL.speed} km/h and end in gear ${GOAL.gear}, riding smoothly.
+CONTROLLER: launches in 1st, ramps throttle up gently, upshifts one gear at a time when rpm reaches shift_rpm (until the goal gear), tapers throttle near the target (throttle% = approach_gain x km/h remaining, floor 20%, capped at max_throttle_pct), cuts throttle at the target, then settles into the goal gear.
+VEHICLE: rpm = speed_kmh x ratio, ratios 1:180 2:130 3:100 4:80 5:65 6:55; redline ${REDLINE} (a guard forces an upshift above it). Acceleration = throttle/100 x ratio/10 km/h per second, so lower gears accelerate harder. No drag.
+TRADE-OFF: higher shift_rpm and max_throttle = faster but harsher; lower = smoother but slower. Aim for quick but smooth: typically shift_rpm 6500-7500, max_throttle_pct 80-90 and approach_gain 7-9; go gentler only for small speed changes. Valid ranges: shift_rpm 4500-7800, max_throttle_pct 30-90, approach_gain 3-10. Give a one-sentence reasoning.`;
+
+  /* Retry transient overload errors (429/503) with backoff; sim time is frozen meanwhile */
+  const fetchRetry = async (url, init) => {
+    for (let i = 0; ; i++) {
+      const r = await fetch(url, init);
+      if ((r.status === 503 || r.status === 429 || r.status === 529) && i < 4) { await new Promise(x => setTimeout(x, 1500 * (i + 1))); continue; }
+      return r;
+    }
+  };
+  /* ── REASON: LLM driver (Anthropic Messages API, tool use) ── */
+  async function claudeDecide(obs, hist) {
+    const t0 = performance.now(), rid = S.runId;
+    const res = await fetchRetry('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{ 'content-type':'application/json', 'x-api-key':$('key').value.trim(), 'anthropic-version':'2023-06-01',
+                'anthropic-dangerous-direct-browser-access':'true' },
+      body: JSON.stringify({ model:$('model').value.trim(), max_tokens:400, system:SYSTEM, tools:TOOLS,
+        messages:[{ role:'user', content:`TELEMETRY\n${JSON.stringify(obs)}\n\nRECENT ACTIONS\n${hist.slice(-4).join('\n') || 'none'}\n\nDecide now.` }] })
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0, 160)}`);
+    const j = await res.json();
+    if (rid !== S.runId || !S.active) return { thought:'', calls:[] };
+    S.calls++; S.lat += performance.now() - t0; S.tokens += (j.usage?.input_tokens || 0) + (j.usage?.output_tokens || 0);
+    return { thought:j.content.filter(b => b.type === 'text').map(b => b.text).join(' ').trim(),
+             calls:j.content.filter(b => b.type === 'tool_use').map(b => ({ name:b.name, input:b.input })) };
+  }
+
+  /* ── REASON: Gemini driver (Google AI Studio key, function calling) ── */
+  const GTOOLS = [{ functionDeclarations: TOOLS.map(t => {
+    const d = { name:t.name, description:t.description }, pr = t.input_schema.properties;
+    if (Object.keys(pr).length) d.parameters = { type:'OBJECT', required:t.input_schema.required,
+      properties:Object.fromEntries(Object.entries(pr).map(([k, v]) => [k, { type:v.type.toUpperCase() }])) };
+    return d;
+  }) }];
+  async function geminiDecide(obs, hist) {
+    const t0 = performance.now(), rid = S.runId;
+    const res = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent($('model').value.trim())}:generateContent`, {
+      method:'POST',
+      headers:{ 'content-type':'application/json', 'x-goog-api-key':$('key').value.trim() },
+      body: JSON.stringify({ systemInstruction:{ parts:[{ text:SYSTEM }] }, tools:GTOOLS, generationConfig:{ maxOutputTokens:2048 },
+        contents:[{ role:'user', parts:[{ text:`TELEMETRY\n${JSON.stringify(obs)}\n\nRECENT ACTIONS\n${hist.slice(-4).join('\n') || 'none'}\n\nDecide now.` }] }] })
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0, 160)}`);
+    const j = await res.json(), parts = j.candidates?.[0]?.content?.parts || [];
+    if (rid !== S.runId || !S.active) return { thought:'', calls:[] };
+    S.calls++; S.lat += performance.now() - t0; S.tokens += j.usageMetadata?.totalTokenCount || 0;
+    return { thought:parts.filter(x => x.text).map(x => x.text).join(' ').trim(),
+             calls:parts.filter(x => x.functionCall).map(x => ({ name:x.functionCall.name, input:x.functionCall.args || {} })) };
+  }
+  /* ── REASON: DeepSeek driver (OpenAI-compatible chat/completions + tools) ── */
+  const OTOOLS = TOOLS.map(t => ({ type:'function', function:{ name:t.name, description:t.description, parameters:t.input_schema } }));
+  async function deepseekDecide(obs, hist) {
+    const t0 = performance.now(), rid = S.runId;
+    const res = await fetchRetry('https://api.deepseek.com/chat/completions', {
+      method:'POST', headers:{ 'content-type':'application/json', authorization:'Bearer ' + $('key').value.trim() },
+      body: JSON.stringify({ model:$('model').value.trim(), max_tokens:400, tools:OTOOLS, tool_choice:'auto',
+        messages:[{ role:'system', content:SYSTEM }, { role:'user', content:`TELEMETRY\n${JSON.stringify(obs)}\n\nRECENT ACTIONS\n${hist.slice(-4).join('\n') || 'none'}\n\nDecide now.` }] })
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0, 160)}`);
+    const j = await res.json(), m = j.choices?.[0]?.message || {};
+    if (rid !== S.runId || !S.active) return { thought:'', calls:[] };
+    S.calls++; S.lat += performance.now() - t0; S.tokens += j.usage?.total_tokens || 0;
+    return { thought:(m.content || '').trim(), calls:(m.tool_calls || []).map(c => { let a = {}; try { a = JSON.parse(c.function.arguments || '{}'); } catch(e) {} return { name:c.function.name, input:a }; }) };
+  }
+  const llmDecide = (o, h) => { const p = $('provider').value; return p === 'gemini' ? geminiDecide(o, h) : p === 'deepseek' ? deepseekDecide(o, h) : claudeDecide(o, h); };
+
+  /* ── Baseline: deterministic rule-based driver on the same telemetry ── */
+  async function ruleDecide(o) {
+    const calls = []; let why = 'hold';
+    if (o.gear === 0) { calls.push({ name:'shift_up', input:{} }); why = 'launch: select 1st'; }
+    else if (o.gear < 6 && o.projected_rpm_next_tick > REDLINE) { calls.push({ name:'shift_up', input:{} }); why = `projected ${o.projected_rpm_next_tick} > ${REDLINE} → upshift`; }
+    if (o.throttle_pct < 100) calls.push({ name:'set_throttle', input:{ percent:100 } });
+    return { thought:'rule: ' + why, calls };
+  }
+
+  /* ── Lock-step clock + safety guard (hooked into the main loop) ── */
+  const advance = sec => new Promise(res => { S.budget = sec; S.wait = res; });
+  const dt = real => {
+    if (!S.lock) return real;
+    const d = Math.min(real, S.budget); S.budget -= d;
+    if (S.budget <= 1e-9 && S.wait) { const w = S.wait; S.wait = null; w(); }
+    return d;
+  };
+  const head = () => `t=${S.t.toFixed(2)}s · G${gear || 'N'} · ${Math.round(rpm)} rpm · ${speed.toFixed(0)} km/h`;
+  function pre(d) {
+    if (S.active && S.mode === 'plan' && d !== 0) drive(d);
+    if (S.active && d !== 0 && speed >= GOAL.speed && effThr() > 0) { tools.set_throttle({ percent:0 }); if (!S.lim) { S.lim = 1; log({ sys:true, head:head(), text:`LIMITER: throttle cut at target ${GOAL.speed} km/h` }); } }
+    if (!S.active || d === 0 || !$('guard').checked || gear === 0 || clutch) return;
+    const p = proj(d * 2); if (p <= REDLINE) return;
+    S.ovr++; const g = gear;
+    if (gear < 6) shiftUp(); else tools.set_throttle({ percent:50 });
+    log({ sys:true, head:head(), text:`SAFETY OVERRIDE: projected ${Math.round(p)} rpm → ${g < 6 ? `forced upshift ${g}→${gear}` : 'throttle cut'}` });
+  }
+  function post(d) {
+    if (!S.active || d === 0) return;
+    S.t += d; S.peak = Math.max(S.peak, rpm);
+    if (rpm > REDLINE + 1) { if (!S.inOver) S.evts++; S.inOver = true; } else S.inOver = false;
+    S.trace.push([S.t, rpm, speed, gear]); ui(); draw();
+    if (Math.abs(speed - GOAL.speed) <= 1.5 && gear === GOAL.gear) S.hold += d; else S.hold = 0;
+    if (S.hold >= 1) finish(true); else if (S.t >= TIMEOUT) finish(false, 'timeout');
+  }
+
+  /* ── Planner + real-time controller: the LLM plans once, the controller drives at 60 Hz ── */
+  const DEFAULT_PLAN = { shiftRpm:7000, maxThr:85, taperGain:8 };
+  const clampPlan = i => ({ shiftRpm:Math.max(4500, Math.min(7800, +i.shift_rpm || 6500)), maxThr:Math.max(30, Math.min(90, +i.max_throttle_pct || 70)), taperGain:Math.max(3, Math.min(10, +i.approach_gain || 6)) });
+  function drive(d) {
+    const P = S.plan, left = GOAL.speed - speed;
+    clutch = false; keys.s = false; S.ramp = Math.min(1, S.ramp + d * 2);
+    if (S.shiftT > 0) S.shiftT -= d;
+    if (left <= 0.3) S.arrived = true;
+    if (gear === 0) { shiftUp(); S.shiftT = 0.2; }
+    else if (S.shiftT <= 0 && (S.arrived ? gear !== GOAL.gear : (gear < GOAL.gear && rpm >= P.shiftRpm))) { if (gear < GOAL.gear) shiftUp(); else shiftDown(); S.shiftT = S.arrived ? 0.4 : 0.25; }
+    tools.set_throttle({ percent:(S.arrived || S.shiftT > 0.1) ? 0 : Math.min(P.maxThr, Math.max(20, left * P.taperGain)) * S.ramp });
+  }
+  async function planRun(id) {
+    phase('observe'); const obs = tele(0.5), hd = head();
+    phase('reason'); let plan = null, why = '';
+    try {
+      const d = await llmDecide(obs, []), c = d.calls.find(x => x.name === 'submit_plan');
+      if (c) { plan = clampPlan(c.input || {}); why = String((c.input || {}).reasoning || d.thought || ''); } else why = 'model returned no plan';
+    } catch (e) { if (id !== S.runId || !S.active) return; why = `LLM unavailable (${e.message})`; }
+    if (!S.active || id !== S.runId) return;
+    if (!plan) { plan = DEFAULT_PLAN; why += ' → using default plan'; }
+    phase('act'); log({ head:hd, text:why, chips:[`shift@${plan.shiftRpm}rpm`, `max ${plan.maxThr}%`, `approach x${plan.taperGain}`] });
+    Object.assign(S, { plan, mode:'plan', lock:false, ramp:0, arrived:false, shiftT:0 });
+    await new Promise(res => { S.done = res; });
+  }
+
+  /* ── Run orchestration ── */
+  function resetCar() { rpm = MIN_RPM; speed = 0; setGear(0); throttle = 0; thrIn.value = 0; thrVal.textContent = '0%'; clutch = false; keys.s = false; }
+  async function run(driver) {
+    if (S.active) return;
+    const llm = driver === 'llm', rp = driver === 'replay';
+    if (rp && !S.replay) { $('status').textContent = 'no successful LLM run recorded yet'; return; }
+    if (llm && !$('key').value.trim()) { $('status').textContent = 'enter your API key'; return; }
+    if (llm) { const g = parseGoal($('goal').value); if (!g.ok) { $('status').textContent = g.err; return; } GOAL = g; SYSTEM = buildSystem(); $('sTarget').textContent = `${g.speed} km/h · G${g.gear}`; }
+    resetCar();
+    Object.assign(S, { t:0, evts:0, inOver:false, peak:0, ovr:0, calls:0, lat:0, tokens:0, trace:[], hold:0, lim:0, nextWait:0, arrived:false, shiftT:0, ramp:0, mode:'', plan:null, done:null, driver:rp ? 'replay' : llm ? $('provider').value + ':' + $('model').value.trim() : 'baseline', active:true, lock:true, budget:0, abort:new AbortController() });
+    const id = ++S.runId, tick = rp ? S.replay.tick : +$('tick').value / 1000, hist = [], rec = [];
+    S.tick = tick; S.rec = rec;
+    logEl.textContent = ''; $('status').textContent = 'running…';
+    log({ sys:true, head:`RUN START · ${rp ? 'REPLAY of recorded LLM run (no API call)' : llm ? 'LLM agent · ' + $('model').value : 'rule-based baseline'} · tick ${tick * 1000} ms · guard ${$('guard').checked ? 'ON' : 'OFF'}` });
+    try {
+      if (llm) { await planRun(id); return S.last; }
+      for (let n = 0; S.active && id === S.runId; n++) {
+        if (n >= MAX_STEPS) { finish(false, 'step limit'); break; }
+        phase('observe'); const obs = tele(tick), hd = head();
+        phase('reason');  const d = await (llm ? llmDecide(obs, hist) : rp ? Promise.resolve(S.replay.steps[n] || { thought:'(end of recording)', calls:[] }) : ruleDecide(obs));
+        if (!S.active || id !== S.runId) break;
+        phase('act');     const chips = d.calls.map(exec); if (llm) rec.push({ thought:d.thought, calls:d.calls });
+        log({ head:hd, text:d.thought, chips });
+        hist.push(`${hd} → ${chips.join(' ') || 'hold'}`);
+        await advance(S.nextWait || tick); S.nextWait = 0;
+      }
+    } catch (e) { if (id === S.runId) finish(false, e.name === 'AbortError' ? 'stopped' : e.message); }
+    return S.last;
+  }
+  function finish(ok, why) {
+    if (!S.active) return;
+    S.active = false; S.lock = false; S.mode = ''; if (S.abort) S.abort.abort();
+    if (S.done) { const w = S.done; S.done = null; w(); }
+    if (S.wait) { const w = S.wait; S.wait = null; w(); }
+    throttle = 0; thrIn.value = 0; thrVal.textContent = '0%'; keys.s = false;
+    const r = { driver:S.driver, ok, time:+S.t.toFixed(2), peak:Math.round(S.peak), evts:S.evts, ovr:S.ovr, calls:S.calls, lat:S.calls ? Math.round(S.lat / S.calls) : 0, tokens:S.tokens };
+    S.last = r; S.lastWhy = why;
+    if (ok && S.driver !== 'baseline' && S.driver !== 'replay' && S.rec.length && (!S.replay || r.time < S.replay.time)) { S.replay = { driver:S.driver, tick:S.tick, time:r.time, steps:S.rec }; try { localStorage.setItem('pixelAgentReplay', JSON.stringify(S.replay)); } catch(e) {} }
+    if (S.driver !== 'replay' && (ok || why === 'timeout' || why === 'step limit')) { runs.push(r); runs = runs.slice(-30); try { localStorage.setItem('pixelAgentRuns', JSON.stringify(runs)); } catch(e) {} }
+    $('status').textContent = ok ? `✔ ${GOAL.speed} km/h in gear ${GOAL.gear} reached in ${r.time}s` : `✖ ${why || 'failed'}`;
+    log({ sys:true, head:`RUN END · ${ok ? 'SUCCESS' : 'FAILED'}${why ? ' · ' + why : ''}`, text:`${r.time}s · peak ${r.peak} rpm · ${r.evts} over-rev events · ${r.ovr} guard overrides` });
+    phase(null); renderRuns(); renderSummary();
+  }
+
+  /* ── Dashboard rendering ── */
+  const logEl = $('log'), pc = $('plot'), px = pc.getContext('2d');
+  const phase = p => ['observe', 'reason', 'act'].forEach(k => $('ph-' + k).classList.toggle('on', k === p));
+  const st = (id, v) => { $(id).textContent = v; };
+  function ui() { st('clk', S.t.toFixed(2) + 's'); st('sPeak', Math.round(S.peak)); st('sOver', S.evts); st('sOvr', S.ovr); st('sCalls', S.calls); st('sLat', S.calls ? Math.round(S.lat / S.calls) + ' ms' : '—'); }
+  function log(o) {
+    const d = document.createElement('div'); d.className = 'entry' + (o.sys ? ' sys' : '');
+    const add = (cls, txt) => { const e = document.createElement('span'); e.className = cls; e.textContent = txt; d.appendChild(e); };
+    add('eh', o.head); if (o.text) add('et', o.text); (o.chips || []).forEach(t => add('chip', t));
+    logEl.appendChild(d); while (logEl.children.length > 300) logEl.removeChild(logEl.firstChild);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  function draw() {
+    const w = pc.width, h = pc.height, xm = Math.max(8, S.t * 1.1), X = t => 30 + t / xm * (w - 40), Y = (v, m) => h - 14 - v / m * (h - 24);
+    px.fillStyle = '#0a0f16'; px.fillRect(0, 0, w, h);
+    px.strokeStyle = '#ff3b30'; px.lineWidth = 1; px.setLineDash([4, 4]); px.beginPath(); px.moveTo(30, Y(REDLINE, 12000)); px.lineTo(w - 10, Y(REDLINE, 12000)); px.stroke(); px.setLineDash([]);
+    const line = (i, m, col) => { px.strokeStyle = col; px.lineWidth = 1.5; px.beginPath(); S.trace.forEach((p, k) => k ? px.lineTo(X(p[0]), Y(p[i], m)) : px.moveTo(X(p[0]), Y(p[i], m))); px.stroke(); };
+    line(1, 12000, '#ffb020'); line(2, 120, '#00e5ff');
+    px.font = '9px monospace'; px.fillStyle = '#4d5c72'; px.fillText('RPM (amber) · km/h (cyan) · red = 9000 limit · digits = gear', 34, 10);
+    let g = -1; S.trace.forEach(p => { if (p[3] !== g) { g = p[3]; px.fillStyle = '#8ea3bd'; px.fillText(g || 'N', X(p[0]) + 2, h - 3); } });
+  }
+  function renderRuns() {
+    const ok = runs.filter(r => r.ok && !r.evts), best = ok.length ? Math.min(...ok.map(r => r.time)) : -1;
+    $('runs').innerHTML = '<tr><th>#</th><th>driver</th><th>0→100</th><th>peak rpm</th><th>over-rev</th><th>overrides</th><th>calls</th><th>avg lat</th><th>tokens</th></tr>' +
+      runs.map((r, i) => `<tr class="${r.ok && !r.evts && r.time === best ? 'best' : ''}"><td>${i + 1}</td><td>${esc(r.driver)}</td><td>${r.ok ? r.time + 's' : '✖'}</td><td>${r.peak}</td><td>${r.evts}</td><td>${r.ovr}</td><td>${r.calls}</td><td>${r.calls ? r.lat + 'ms' : '—'}</td><td>${r.tokens || '—'}</td></tr>`).reverse().join('');
+  }
+
+  const esc = x => String(x).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
+  const bc = $('bars'), bx = bc.getContext('2d');
+  function drawBars(rows) {
+    const w = bc.width, h = bc.height, ok = rows.filter(r => r.m != null);
+    bx.fillStyle = '#0a0f16'; bx.fillRect(0, 0, w, h); bx.font = '10px monospace';
+    if (!ok.length) { bx.fillStyle = '#4d5c72'; bx.fillText('run a benchmark to compare drivers', 12, 20); return; }
+    const mx = Math.max(...ok.map(r => r.m + r.sd)) * 1.1, bh = Math.min(22, (h - 20) / ok.length - 6), x0 = 190, sc = v => x0 + v / mx * (w - x0 - 50);
+    ok.forEach((r, i) => {
+      const y = 12 + i * (bh + 6);
+      bx.fillStyle = '#8ea3bd'; bx.fillText(r.d.slice(0, 26), 8, y + bh * .7);
+      bx.fillStyle = r.d === 'baseline' ? '#00e5ff' : '#ffb020'; bx.fillRect(x0, y, sc(r.m) - x0, bh);
+      bx.strokeStyle = '#e8f0fb'; bx.beginPath(); bx.moveTo(sc(r.m - r.sd), y + bh / 2); bx.lineTo(sc(r.m + r.sd), y + bh / 2); bx.stroke();
+      bx.fillStyle = '#e8f0fb'; bx.fillText(r.m.toFixed(2) + 's', sc(r.m + r.sd) + 6, y + bh * .7);
+    });
+  }
+  function renderSummary() {
+    const g = {}; runs.forEach(r => (g[r.driver] = g[r.driver] || []).push(r));
+    const rows = Object.entries(g).map(([d, a]) => {
+      const ok = a.filter(r => r.ok), t = ok.map(r => r.time), m = t.length ? t.reduce((x, y) => x + y) / t.length : null;
+      const sd = t.length > 1 ? Math.sqrt(t.reduce((x, y) => x + (y - m) ** 2, 0) / (t.length - 1)) : 0, avg = k => a.reduce((x, r) => x + (r[k] || 0), 0) / a.length;
+      return { d, n:a.length, ok:ok.length, clean:a.filter(r => r.ok && !r.evts).length, m, sd, best:t.length ? Math.min(...t) : null, ovr:avg('ovr'), lat:avg('lat'), tok:avg('tokens') };
+    }).sort((x, y) => (x.m ?? 1e9) - (y.m ?? 1e9));
+    $('sum').innerHTML = '<tr><th>driver</th><th>runs</th><th>success</th><th>clean</th><th>mean</th><th>best</th><th>±sd</th><th>overrides</th><th>avg lat</th><th>tokens</th></tr>' +
+      rows.map(r => `<tr><td>${esc(r.d)}</td><td>${r.n}</td><td>${r.ok}/${r.n}</td><td>${r.clean}/${r.n}</td><td>${r.m == null ? '—' : r.m.toFixed(2) + 's'}</td><td>${r.best == null ? '—' : r.best.toFixed(2) + 's'}</td><td>${r.sd.toFixed(2)}</td><td>${r.ovr.toFixed(1)}</td><td>${Math.round(r.lat)}ms</td><td>${Math.round(r.tok)}</td></tr>`).join('');
+    drawBars(rows);
+  }
+  async function bench() {
+    if (S.active || S.bench) return;
+    const n = +$('trials').value, info = t => { $('benchInfo').textContent = t; };
+    S.bench = true; S.benchStop = false;
+    try {
+      info('baseline…'); await run('baseline');
+      for (let i = 0; i < n && !S.benchStop; i++) {
+        info(`LLM trial ${i + 1}/${n}`); const r = await run('llm');
+        if (!r || (!r.ok && S.lastWhy !== 'timeout' && S.lastWhy !== 'step limit')) break;
+        await new Promise(x => setTimeout(x, 400));
+      }
+    } finally { S.bench = false; info(S.benchStop ? 'benchmark stopped' : 'benchmark finished'); }
+  }
+  $('benchBtn').onclick = bench;
+  $('csvBtn').onclick = () => {
+    const cols = ['driver', 'ok', 'time', 'peak', 'evts', 'ovr', 'calls', 'lat', 'tokens'];
+    const csv = [cols.join(',')].concat(runs.map(r => cols.map(c => JSON.stringify(r[c] ?? '')).join(','))).join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv' })); a.download = 'pixel_agent_results.csv'; a.click();
+  };
+  $('clearBtn').onclick = () => { runs = []; try { localStorage.removeItem('pixelAgentRuns'); } catch(e) {} renderRuns(); renderSummary(); };
+  $('rpBtn').onclick = () => run('replay');
+  $('rpSave').onclick = () => {
+    if (!S.replay) { $('status').textContent = 'no recorded LLM run yet'; return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(S.replay)], { type:'application/json' })); a.download = 'pixel_agent_demo.json'; a.click();
+  };
+  $('rpLoad').onclick = () => $('rpFile').click();
+  $('rpFile').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    f.text().then(t => { try {
+      const d = JSON.parse(t); if (!Array.isArray(d.steps) || !(d.tick > 0)) throw 0;
+      S.replay = { driver:String(d.driver || 'demo'), tick:+d.tick, time:+d.time || 0, steps:d.steps.map(x => ({ thought:String(x.thought || ''), calls:(x.calls || []).map(c => ({ name:String(c.name), input:c.input || {} })) })) };
+      try { localStorage.setItem('pixelAgentReplay', JSON.stringify(S.replay)); } catch(e) {}
+      $('status').textContent = 'demo loaded';
+    } catch(err) { $('status').textContent = 'invalid demo file'; } });
+  };
+  $('runLLM').onclick = () => run('llm');
+  $('provider').onchange = () => { $('model').value = { gemini:'gemini-3.1-flash-lite', deepseek:'deepseek-chat', claude:'claude-haiku-5-5' }[$('provider').value]; };
+  $('runBase').onclick = () => run('baseline');
+  $('stopBtn').onclick = () => { S.benchStop = true; finish(false, 'stopped'); resetCar(); $('status').textContent = 'idle'; };
+  ['key', 'model', 'provider', 'goal'].forEach(id => ['keydown', 'keyup'].forEach(ev => $(id).addEventListener(ev, e => e.stopPropagation())));
+  renderRuns(); renderSummary(); draw();
+  window.agentAPI = { telemetry:tele, tools, run, stop:() => $('stopBtn').onclick() };
+  return { dt, pre, post };
+})();
+
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
